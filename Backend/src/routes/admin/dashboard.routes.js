@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const isAdmin = require('../../middlewares/isAdmin');
 const { getClient } = require('../../config/db');
+const { serverError } = require('../../utils/helpers');
 
 router.get('/', isAdmin, async (req, res) => {
   try {
@@ -60,7 +61,7 @@ router.get('/', isAdmin, async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener datos del dashboard', error: error.message });
+    serverError(res, 'Error al obtener datos del dashboard', error);
   }
 });
 

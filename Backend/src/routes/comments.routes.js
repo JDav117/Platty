@@ -4,6 +4,7 @@ const CommentsModel = require('../models/comments.model');
 const authMiddleware = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const { commentSchema } = require('../validations/user.schema');
+const { serverError } = require('../utils/helpers');
 
 router.get('/recipe/:recetaId', async (req, res) => {
   try {
@@ -14,7 +15,7 @@ router.get('/recipe/:recetaId', async (req, res) => {
     });
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener comentarios', error: error.message });
+    serverError(res, 'Error al obtener comentarios', error);
   }
 });
 
@@ -43,7 +44,7 @@ router.post('/', authMiddleware, validate(commentSchema), async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Comentario creado', data: comment });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al crear comentario', error: error.message });
+    serverError(res, 'Error al crear comentario', error);
   }
 });
 
@@ -63,7 +64,7 @@ router.put('/:id', authMiddleware, async (req, res) => {
     const comment = await CommentsModel.update(parseInt(id), contenido);
     res.json({ success: true, message: 'Comentario actualizado', data: comment });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al actualizar comentario', error: error.message });
+    serverError(res, 'Error al actualizar comentario', error);
   }
 });
 
@@ -78,7 +79,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     await CommentsModel.delete(parseInt(id));
     res.json({ success: true, message: 'Comentario eliminado' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar comentario', error: error.message });
+    serverError(res, 'Error al eliminar comentario', error);
   }
 });
 

@@ -5,9 +5,10 @@ const RecipesModel = require('../models/recipes.model');
 const authMiddleware = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const { createRecipeSchema, updateRecipeSchema } = require('../validations/recipe.schema');
-const { upload, uploadToCloudinary, uploadImages, handleUploadError } = require('../middlewares/upload');
+const { uploadToCloudinary, uploadImages, handleUploadError } = require('../middlewares/upload');
 const { makeUniqueSlug } = require('../utils/generateSlug');
 const { getClient } = require('../config/db');
+const { serverError } = require('../utils/helpers');
 
 router.get('/', async (req, res) => {
   try {
@@ -21,7 +22,7 @@ router.get('/', async (req, res) => {
     });
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener recetas', error: error.message });
+    serverError(res, 'Error al obtener recetas', error);
   }
 });
 
@@ -34,7 +35,7 @@ router.get('/user/:userId', async (req, res) => {
     });
     res.json({ success: true, ...result });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener recetas del usuario', error: error.message });
+    serverError(res, 'Error al obtener recetas del usuario', error);
   }
 });
 
@@ -58,7 +59,7 @@ router.get('/:identificador', async (req, res) => {
       data: { ...receta, imagenes, pasos, ingredientes },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener receta', error: error.message });
+    serverError(res, 'Error al obtener receta', error);
   }
 });
 
@@ -66,7 +67,7 @@ router.post('/', authMiddleware, (req, res, next) => {
   uploadImages(req, res, async (err) => {
     if (err) return handleUploadError(err, req, res, next);
     try {
-      const { error: valError } = createRecipeSchema.validate(req.body, { abortEarly: false, stripUnknown: true });
+      const { error: valError, value: datos } = createRecipeSchema.validate(req.body, { abortEarly: false, stripUnknown: true });
       if (valError) {
         const messages = valError.details.map((d) => d.message);
         return res.status(400).json({ success: false, message: 'Error de validación', errors: messages });
@@ -77,23 +78,19 @@ router.post('/', authMiddleware, (req, res, next) => {
         return res.status(400).json({ success: false, message: 'Máximo 5 imágenes' });
       }
 
-      for (const file of files) {
-        if (file.mimetype.startsWith('image/') && file.size > 10 * 1024 * 1024) {
-          return res.status(400).json({ success: false, message: 'Cada imagen no puede superar los 10MB' });
-        }
-      }
-
-      const slug = await makeUniqueSlug(getClient(), req.body.titulo);
+      // datos viene de createRecipeSchema: los numeros ya estan convertidos
+      // e ingredientes/pasos ya son arrays parseados desde el string JSON.
+      const slug = await makeUniqueSlug(getClient(), datos.titulo);
       const recetaData = {
         usuario_id: req.usuario.id,
-        titulo: req.body.titulo,
+        titulo: datos.titulo,
         slug,
-        descripcion: req.body.descripcion,
-        tiempo_preparacion: parseInt(req.body.tiempo_preparacion),
-        dificultad: req.body.dificultad,
-        categoria_id: parseInt(req.body.categoria_id),
-        video_url: req.body.video_url || null,
-        video_tipo: req.body.video_tipo || null,
+        descripcion: datos.descripcion,
+        tiempo_preparacion: datos.tiempo_preparacion,
+        dificultad: datos.dificultad,
+        categoria_id: datos.categoria_id,
+        video_url: datos.video_url || null,
+        video_tipo: datos.video_tipo || null,
       };
 
       const receta = await RecipesModel.create(recetaData);
@@ -113,11 +110,8 @@ router.post('/', authMiddleware, (req, res, next) => {
         });
       }
 
-      const ingredientes = JSON.parse(req.body.ingredientes || '[]');
-      await RecipesModel.setIngredientes(receta.id, ingredientes);
-
-      const pasos = JSON.parse(req.body.pasos || '[]');
-      await RecipesModel.setPasos(receta.id, pasos);
+      await RecipesModel.setIngredientes(receta.id, datos.ingredientes);
+      await RecipesModel.setPasos(receta.id, datos.pasos);
 
       res.status(201).json({
         success: true,
@@ -125,7 +119,7 @@ router.post('/', authMiddleware, (req, res, next) => {
         data: { id: receta.id, slug: receta.slug },
       });
     } catch (error) {
-      res.status(500).json({ success: false, message: 'Error al crear receta', error: error.message });
+      serverError(res, 'Error al crear receta', error);
     }
   });
 });
@@ -140,11 +134,22 @@ router.put('/:id', authMiddleware, (req, res, next) => {
         return res.status(403).json({ success: false, message: 'No eres el propietario de esta receta' });
       }
 
+      const { error: valError, value: datos } = updateRecipeSchema.validate(req.body, { abortEarly: false, stripUnknown: true });
+      if (valError) {
+        const messages = valError.details.map((d) => d.message);
+        return res.status(400).json({ success: false, message: 'Error de validación', errors: messages });
+      }
+
       const updateData = {};
       const fields = ['titulo', 'descripcion', 'tiempo_preparacion', 'dificultad', 'categoria_id', 'video_url', 'video_tipo'];
       fields.forEach((f) => {
-        if (req.body[f] !== undefined) updateData[f] = req.body[f];
+        if (datos[f] !== undefined) updateData[f] = datos[f];
       });
+
+      // El formulario envía cadena vacía para quitar un video ya guardado;
+      // en la tabla eso debe quedar como NULL, no como ''.
+      if (updateData.video_url === '') updateData.video_url = null;
+      if (updateData.video_tipo === '') updateData.video_tipo = null;
 
       if (updateData.titulo) {
         updateData.slug = await makeUniqueSlug(getClient(), updateData.titulo, parseInt(id));
@@ -176,19 +181,17 @@ router.put('/:id', authMiddleware, (req, res, next) => {
         }
       }
 
-      if (req.body.ingredientes) {
-        const ingredientes = JSON.parse(req.body.ingredientes);
-        await RecipesModel.setIngredientes(parseInt(id), ingredientes);
+      if (datos.ingredientes) {
+        await RecipesModel.setIngredientes(parseInt(id), datos.ingredientes);
       }
 
-      if (req.body.pasos) {
-        const pasos = JSON.parse(req.body.pasos);
-        await RecipesModel.setPasos(parseInt(id), pasos);
+      if (datos.pasos) {
+        await RecipesModel.setPasos(parseInt(id), datos.pasos);
       }
 
       res.json({ success: true, message: 'Receta actualizada exitosamente' });
     } catch (error) {
-      res.status(500).json({ success: false, message: 'Error al actualizar receta', error: error.message });
+      serverError(res, 'Error al actualizar receta', error);
     }
   });
 });
@@ -211,7 +214,7 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     await RecipesModel.delete(parseInt(id));
     res.json({ success: true, message: 'Receta eliminada exitosamente' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar receta', error: error.message });
+    serverError(res, 'Error al eliminar receta', error);
   }
 });
 

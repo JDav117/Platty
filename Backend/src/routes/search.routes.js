@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClient } = require('../config/db');
+const { orLiteral, serverError } = require('../utils/helpers');
 
 router.get('/', async (req, res) => {
   try {
@@ -13,7 +14,8 @@ router.get('/', async (req, res) => {
       .select('*', { count: 'exact' });
 
     if (q) {
-      query = query.or(`titulo.ilike.%${q}%,descripcion.ilike.%${q}%`);
+      const patron = orLiteral(`%${q}%`);
+      query = query.or(`titulo.ilike.${patron},descripcion.ilike.${patron}`);
     }
 
     if (categoria_id) {
@@ -39,7 +41,7 @@ router.get('/', async (req, res) => {
 
     res.json({ success: true, data, total: count || 0, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error en la búsqueda', error: error.message });
+    serverError(res, 'Error en la búsqueda', error);
   }
 });
 

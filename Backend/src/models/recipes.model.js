@@ -1,4 +1,5 @@
 const { getClient } = require('../config/db');
+const { orLiteral } = require('../utils/helpers');
 
 const RecipesModel = {
   findAll: async ({ page = 1, limit = 10, categoria_id, search, ordenar }) => {
@@ -14,7 +15,8 @@ const RecipesModel = {
     }
 
     if (search) {
-      query = query.or(`titulo.ilike.%${search}%,descripcion.ilike.%${search}%`);
+      const patron = orLiteral(`%${search}%`);
+      query = query.or(`titulo.ilike.${patron},descripcion.ilike.${patron}`);
     }
 
     if (ordenar === 'rating') {

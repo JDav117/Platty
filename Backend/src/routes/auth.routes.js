@@ -11,24 +11,14 @@ const authMiddleware = require('../middlewares/auth');
 const { authLimiter } = require('../middlewares/rateLimiter');
 const { registerSchema, loginSchema, forgotPasswordSchema, resetPasswordSchema } = require('../validations/auth.schema');
 const { sendPasswordResetEmail, sendOtpEmail } = require('../utils/emailService');
+const { generateTokens, generateOtp, OTP_TTL_MS } = require('../utils/tokens');
+const { serverError } = require('../utils/helpers');
 
 const SECRET_KEY = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
-const REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
-const generateTokens = (user) => {
-  const payload = {
-    id: user.id,
-    email: user.email,
-    rol: user.rol,
-    token_version: user.token_version || 0,
-  };
-
-  const token = jwt.sign(payload, SECRET_KEY, { expiresIn: JWT_EXPIRES_IN });
-  const refreshToken = jwt.sign({ id: user.id, type: 'refresh' }, SECRET_KEY, { expiresIn: REFRESH_EXPIRES_IN });
-
-  return { token, refreshToken };
-};
+// Hash de referencia: se compara contra el cuando el email no existe, para que
+// la respuesta tarde lo mismo que con una cuenta real y no delate cuales existen.
+const HASH_FICTICIO = bcrypt.hashSync('platty-timing-equalizer', 10);
 
 router.post('/register', authLimiter, validate(registerSchema), async (req, res) => {
   try {
@@ -50,8 +40,8 @@ router.post('/register', authLimiter, validate(registerSchema), async (req, res)
     };
 
     const user = await AuthModel.create(userData);
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    const otpExpires = new Date(Date.now() + 600000).toISOString();
+    const otpCode = generateOtp();
+    const otpExpires = new Date(Date.now() + OTP_TTL_MS).toISOString();
     await AuthModel.setOtp(user.id, otpCode, otpExpires);
 
     try {
@@ -73,7 +63,7 @@ router.post('/register', authLimiter, validate(registerSchema), async (req, res)
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al registrar usuario', error: error.message });
+    serverError(res, 'Error al registrar usuario', error);
   }
 });
 
@@ -85,8 +75,10 @@ router.post('/verify-otp', authLimiter, async (req, res) => {
     }
 
     const user = await AuthModel.findByEmail(email);
+    // Un 404 aqui revelaba si el email estaba registrado. Un codigo que no
+    // corresponde a ninguna cuenta se responde igual que un codigo equivocado.
     if (!user) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+      return res.status(400).json({ success: false, message: 'Código incorrecto o expirado' });
     }
 
     if (user.email_verified) {
@@ -95,11 +87,11 @@ router.post('/verify-otp', authLimiter, async (req, res) => {
 
     const result = await AuthModel.verifyOtp(user.id, code);
     if (!result.valid) {
-      return res.status(400).json({ success: false, message: result.reason });
+      return res.status(400).json({ success: false, message: 'Código incorrecto o expirado' });
     }
 
     await AuthModel.markEmailVerified(user.id);
-    const tokens = generateTokens({ ...user, token_version: user.token_version || 0 });
+    const tokens = generateTokens(user);
 
     res.json({
       success: true,
@@ -115,7 +107,7 @@ router.post('/verify-otp', authLimiter, async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al verificar código', error: error.message });
+    serverError(res, 'Error al verificar código', error);
   }
 });
 
@@ -126,17 +118,16 @@ router.post('/resend-otp', authLimiter, async (req, res) => {
       return res.status(400).json({ success: false, message: 'Email requerido' });
     }
 
+    // Misma respuesta exista o no la cuenta, igual que en /forgot-password.
+    const MENSAJE_NEUTRO = 'Si la cuenta existe y está pendiente de verificar, te enviamos un código';
+
     const user = await AuthModel.findByEmail(email);
-    if (!user) {
-      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    if (!user || user.email_verified) {
+      return res.json({ success: true, message: MENSAJE_NEUTRO });
     }
 
-    if (user.email_verified) {
-      return res.json({ success: true, message: 'El correo ya está verificado' });
-    }
-
-    const otpCode = String(Math.floor(100000 + Math.random() * 900000));
-    const otpExpires = new Date(Date.now() + 600000).toISOString();
+    const otpCode = generateOtp();
+    const otpExpires = new Date(Date.now() + OTP_TTL_MS).toISOString();
     await AuthModel.setOtp(user.id, otpCode, otpExpires);
 
     try {
@@ -145,9 +136,9 @@ router.post('/resend-otp', authLimiter, async (req, res) => {
       console.error('Error reenviando OTP:', emailErr.message);
     }
 
-    res.json({ success: true, message: 'Código reenviado a tu correo' });
+    res.json({ success: true, message: MENSAJE_NEUTRO });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al reenviar código', error: error.message });
+    serverError(res, 'Error al reenviar código', error);
   }
 });
 
@@ -155,6 +146,7 @@ router.post('/login', authLimiter, validate(loginSchema), async (req, res) => {
   try {
     const user = await AuthModel.findByEmail(req.body.email);
     if (!user) {
+      await bcrypt.compare(req.body.contraseña, HASH_FICTICIO);
       return res.status(401).json({ success: false, message: 'Credenciales inválidas' });
     }
 
@@ -187,7 +179,7 @@ router.post('/login', authLimiter, validate(loginSchema), async (req, res) => {
       ...tokens,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al iniciar sesión', error: error.message });
+    serverError(res, 'Error al iniciar sesión', error);
   }
 });
 
@@ -199,11 +191,11 @@ router.get('/me', authMiddleware, async (req, res) => {
     }
     res.json({ success: true, data: user });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener usuario', error: error.message });
+    serverError(res, 'Error al obtener usuario', error);
   }
 });
 
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', authLimiter, async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {
@@ -220,7 +212,17 @@ router.post('/refresh', async (req, res) => {
       return res.status(401).json({ success: false, message: 'Usuario no encontrado o inactivo' });
     }
 
-    const tokens = generateTokens({ ...user, token_version: 0 });
+    // El refresh token tambien carga su token_version: incrementarla
+    // (cerrar sesiones, cambiar contraseña) tambien lo invalida a el.
+    if ((decoded.token_version || 0) !== (user.token_version || 0)) {
+      return res.status(401).json({
+        success: false,
+        message: 'Sesión cerrada. Vuelve a iniciar sesión',
+        code: 'TOKEN_REVOKED',
+      });
+    }
+
+    const tokens = generateTokens(user);
     res.json({ success: true, ...tokens });
   } catch (err) {
     res.status(401).json({ success: false, message: 'Refresh token inválido o expirado' });
@@ -246,11 +248,11 @@ router.post('/forgot-password', authLimiter, validate(forgotPasswordSchema), asy
 
     res.json({ success: true, message: 'Si el email existe, recibirás un enlace de recuperación' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al procesar solicitud', error: error.message });
+    serverError(res, 'Error al procesar solicitud', error);
   }
 });
 
-router.post('/reset-password', validate(resetPasswordSchema), async (req, res) => {
+router.post('/reset-password', authLimiter, validate(resetPasswordSchema), async (req, res) => {
   try {
     const user = await AuthModel.findByResetToken(req.body.token);
     if (!user || !user.reset_expires || new Date(user.reset_expires) < new Date()) {
@@ -260,10 +262,12 @@ router.post('/reset-password', validate(resetPasswordSchema), async (req, res) =
     const hashedPassword = await bcrypt.hash(req.body.contraseña, 10);
     await AuthModel.updatePassword(user.id, hashedPassword);
     await AuthModel.clearResetToken(user.id);
+    // Un reset de contraseña debe expulsar cualquier sesion que siguiera abierta.
+    await AuthModel.incrementTokenVersion(user.id);
 
     res.json({ success: true, message: 'Contraseña restablecida exitosamente' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al restablecer contraseña', error: error.message });
+    serverError(res, 'Error al restablecer contraseña', error);
   }
 });
 

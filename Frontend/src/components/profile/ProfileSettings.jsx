@@ -8,7 +8,7 @@ import Modal from '../ui/Modal';
 import { toast } from 'sonner';
 
 export default function ProfileSettings() {
-  const { user, logout } = useAuthStore();
+  const { user, logout, setAuth } = useAuthStore();
   const navigate = useNavigate();
   const [pw, setPw] = useState({ actual: '', nueva: '' });
   const [loading, setLoading] = useState(false);
@@ -22,10 +22,12 @@ export default function ProfileSettings() {
     e.preventDefault();
     if (pw.nueva.length < 8) { toast.error('Mín. 8 caracteres'); return; }
     setLoading(true);
-    try { await usersAPI.changePassword({ contraseñaActual: pw.actual, nuevaContraseña: pw.nueva }); toast.success('Contraseña actualizada'); setPw({ actual: '', nueva: '' }); }
+    // El backend rota el token_version al cambiar la contraseña y devuelve
+    // tokens nuevos; sin guardarlos, la sesión actual queda invalidada.
+    try { const { data } = await usersAPI.changePassword({ contraseñaActual: pw.actual, nuevaContraseña: pw.nueva }); if (data.token) setAuth(user, data.token, data.refreshToken); toast.success('Contraseña actualizada'); setPw({ actual: '', nueva: '' }); }
     catch (err) { toast.error(err.response?.data?.message||'Error'); } finally { setLoading(false); }
   };
-  const closeSess = async () => { try { await usersAPI.closeSessions(); toast.success('Sesiones cerradas'); setShowClose(false); } catch { toast.error('Error'); } };
+  const closeSess = async () => { try { const { data } = await usersAPI.closeSessions(); if (data.token) setAuth(user, data.token, data.refreshToken); toast.success('Sesiones cerradas'); setShowClose(false); } catch { toast.error('Error'); } };
   const deactivate = async () => { try { await usersAPI.deactivateAccount(); toast.success('Cuenta desactivada'); logout(); navigate('/'); } catch { toast.error('Error'); } };
   const deleteAcc = async () => { try { await usersAPI.deleteAccount(delPw); toast.success('Cuenta eliminada'); logout(); navigate('/'); } catch (err) { toast.error(err.response?.data?.message||'Error'); } };
 

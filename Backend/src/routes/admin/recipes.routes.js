@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const isAdmin = require('../../middlewares/isAdmin');
 const { getClient } = require('../../config/db');
-const { registerAudit } = require('../../utils/helpers');
+const { registerAudit, orLiteral, serverError } = require('../../utils/helpers');
 
 router.get('/', isAdmin, async (req, res) => {
   try {
@@ -15,7 +15,8 @@ router.get('/', isAdmin, async (req, res) => {
       .select('*', { count: 'exact' });
 
     if (search) {
-      query = query.or(`titulo.ilike.%${search}%,creador_nombre.ilike.%${search}%`);
+      const patron = orLiteral(`%${search}%`);
+      query = query.or(`titulo.ilike.${patron},creador_nombre.ilike.${patron}`);
     }
 
     const { data, error, count } = await query
@@ -25,7 +26,7 @@ router.get('/', isAdmin, async (req, res) => {
 
     res.json({ success: true, data, total: count || 0, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener recetas', error: error.message });
+    serverError(res, 'Error al obtener recetas', error);
   }
 });
 
@@ -57,7 +58,7 @@ router.delete('/:id', isAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Receta eliminada' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar receta', error: error.message });
+    serverError(res, 'Error al eliminar receta', error);
   }
 });
 

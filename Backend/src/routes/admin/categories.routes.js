@@ -5,7 +5,7 @@ const validate = require('../../middlewares/validate');
 const { categorySchema } = require('../../validations/recipe.schema');
 const { getClient } = require('../../config/db');
 const { generateSlug } = require('../../utils/generateSlug');
-const { registerAudit } = require('../../utils/helpers');
+const { registerAudit, serverError } = require('../../utils/helpers');
 
 router.get('/', isAdmin, async (req, res) => {
   try {
@@ -17,7 +17,7 @@ router.get('/', isAdmin, async (req, res) => {
     if (error) throw error;
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener categorías', error: error.message });
+    serverError(res, 'Error al obtener categorías', error);
   }
 });
 
@@ -49,7 +49,7 @@ router.post('/', isAdmin, validate(categorySchema), async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Categoría creada', data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al crear categoría', error: error.message });
+    serverError(res, 'Error al crear categoría', error);
   }
 });
 
@@ -82,7 +82,7 @@ router.put('/:id', isAdmin, validate(categorySchema), async (req, res) => {
 
     res.json({ success: true, message: 'Categoría actualizada', data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al actualizar categoría', error: error.message });
+    serverError(res, 'Error al actualizar categoría', error);
   }
 });
 
@@ -101,7 +101,7 @@ router.delete('/:id', isAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Categoría eliminada' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar categoría', error: error.message });
+    serverError(res, 'Error al eliminar categoría', error);
   }
 });
 

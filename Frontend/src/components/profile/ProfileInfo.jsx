@@ -11,7 +11,7 @@ export default function ProfileInfo({ user }) {
   const [form, setForm] = useState({ nombre1: '', nombre2: '', apellido1: '', apellido2: '', bio: '' });
 
   const startEdit = () => { setForm({ nombre1: user?.nombre1||'', nombre2: user?.nombre2||'', apellido1: user?.apellido1||'', apellido2: user?.apellido2||'', bio: user?.bio||'' }); setEditing(true); };
-  const save = async () => { setLoading(true); try { const { data } = await updateProfile(form); updateUser(data.data); toast.success('Perfil actualizado'); setEditing(false); } catch (err) { toast.error(err.response?.data?.message||'Error'); } finally { setLoading(false); } };
+  const save = async () => { setLoading(true); try { const { data } = await updateProfile(form); updateUser(data.data); toast.success(data.message || 'Perfil actualizado'); setEditing(false); } catch (err) { toast.error(err.response?.data?.message||'Error'); } finally { setLoading(false); } };
   const [loading, setLoading] = useState(false);
 
   const handleAvatar = async (e) => {

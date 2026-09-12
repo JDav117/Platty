@@ -17,7 +17,7 @@ const AuthModel = {
     const supabase = getClient();
     const { data, error } = await supabase
       .from('usuarios')
-      .select('id, nombre1, nombre2, apellido1, apellido2, email, bio, avatar_url, rol, is_active, email_verified, created_at')
+      .select('id, nombre1, nombre2, apellido1, apellido2, email, bio, avatar_url, rol, is_active, email_verified, token_version, created_at')
       .eq('id', id)
       .single();
     if (error && error.code === 'PGRST116') return null;
@@ -83,7 +83,7 @@ const AuthModel = {
       .from('usuarios')
       .update({ ...data, updated_at: new Date().toISOString() })
       .eq('id', id)
-      .select()
+      .select('id, nombre1, nombre2, apellido1, apellido2, email, bio, avatar_url, rol, is_active, email_verified, token_version, created_at, updated_at')
       .single();
     if (error) throw error;
     return result;
