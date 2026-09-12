@@ -4,6 +4,7 @@ const isAdmin = require('../../middlewares/isAdmin');
 const { getClient } = require('../../config/db');
 const { generateMonthlyReportPDF } = require('../../utils/pdfGenerator');
 const { generateMonthlyReportExcel } = require('../../utils/excelGenerator');
+const { serverError } = require('../../utils/helpers');
 
 router.get('/:mes/:anio', isAdmin, async (req, res) => {
   try {
@@ -87,7 +88,7 @@ router.get('/:mes/:anio', isAdmin, async (req, res) => {
 
     res.json({ success: true, data: reportData });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al generar reporte', error: error.message });
+    serverError(res, 'Error al generar reporte', error);
   }
 });
 

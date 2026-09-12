@@ -4,6 +4,7 @@ const authMiddleware = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
 const { ratingSchema } = require('../validations/user.schema');
 const { getClient } = require('../config/db');
+const { serverError } = require('../utils/helpers');
 
 router.post('/', authMiddleware, validate(ratingSchema), async (req, res) => {
   try {
@@ -42,7 +43,7 @@ router.post('/', authMiddleware, validate(ratingSchema), async (req, res) => {
 
     res.status(201).json({ success: true, message: 'Calificación registrada', data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al calificar', error: error.message });
+    serverError(res, 'Error al calificar', error);
   }
 });
 
@@ -66,7 +67,7 @@ router.get('/:recetaId', async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener calificaciones', error: error.message });
+    serverError(res, 'Error al obtener calificaciones', error);
   }
 });
 

@@ -1,19 +1,10 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const passport = require('../config/passport');
+const { generateTokens } = require('../utils/tokens');
 require('dotenv').config();
 
-const SECRET_KEY = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '24h';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
-
-const generateTokens = (user) => {
-  const payload = { id: user.id, email: user.email, rol: user.rol, token_version: user.token_version || 0 };
-  const token = jwt.sign(payload, SECRET_KEY, { expiresIn: JWT_EXPIRES_IN });
-  const refreshToken = jwt.sign({ id: user.id, type: 'refresh' }, SECRET_KEY, { expiresIn: '7d' });
-  return { token, refreshToken };
-};
 
 router.get('/google', passport.authenticate('google', { scope: ['profile', 'email'], session: false }));
 

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/auth');
 const { getClient } = require('../config/db');
+const { serverError } = require('../utils/helpers');
 
 router.get('/', authMiddleware, async (req, res) => {
   try {
@@ -35,7 +36,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     res.json({ success: true, data: sortedRecetas, total: count || 0, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener favoritos', error: error.message });
+    serverError(res, 'Error al obtener favoritos', error);
   }
 });
 
@@ -70,7 +71,7 @@ router.post('/toggle', authMiddleware, async (req, res) => {
 
     res.json({ success: true, message: 'Añadido a favoritos', favorito: true });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al cambiar favorito', error: error.message });
+    serverError(res, 'Error al cambiar favorito', error);
   }
 });
 
@@ -86,7 +87,7 @@ router.get('/check/:recetaId', authMiddleware, async (req, res) => {
 
     res.json({ success: true, favorito: !!data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al verificar favorito', error: error.message });
+    serverError(res, 'Error al verificar favorito', error);
   }
 });
 

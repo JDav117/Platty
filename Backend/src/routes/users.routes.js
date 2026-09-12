@@ -6,8 +6,12 @@ require('dotenv').config();
 const AuthModel = require('../models/auth.model');
 const authMiddleware = require('../middlewares/auth');
 const validate = require('../middlewares/validate');
-const { updateProfileSchema, changePasswordSchema } = require('../validations/auth.schema');
-const { upload, uploadToCloudinary, uploadSingleImage, handleUploadError } = require('../middlewares/upload');
+const { changePasswordSchema } = require('../validations/auth.schema');
+const { updateProfileSchema } = require('../validations/user.schema');
+const { uploadToCloudinary, uploadSingleImage, handleUploadError } = require('../middlewares/upload');
+const { generateTokens, generateOtp, OTP_TTL_MS } = require('../utils/tokens');
+const { sendOtpEmail } = require('../utils/emailService');
+const { serverError } = require('../utils/helpers');
 
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
@@ -17,7 +21,7 @@ router.get('/profile', authMiddleware, async (req, res) => {
     }
     res.json({ success: true, data: user });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener perfil', error: error.message });
+    serverError(res, 'Error al obtener perfil', error);
   }
 });
 
@@ -29,17 +33,46 @@ router.put('/profile', authMiddleware, validate(updateProfileSchema), async (req
       if (req.body[f] !== undefined) updateData[f] = req.body[f];
     });
 
-    if (updateData.email) {
+    const actual = await AuthModel.findById(req.usuario.id);
+    if (!actual) {
+      return res.status(404).json({ success: false, message: 'Usuario no encontrado' });
+    }
+
+    const cambiaEmail = Boolean(updateData.email) && updateData.email !== actual.email;
+
+    if (cambiaEmail) {
       const existing = await AuthModel.findByEmail(updateData.email);
       if (existing && existing.id !== req.usuario.id) {
         return res.status(409).json({ success: false, message: 'El email ya está en uso' });
       }
+      // El correo nuevo todavía no está probado: sin reiniciar la verificación,
+      // bastaba con registrarse desde un dominio permitido y luego mudarse.
+      updateData.email_verified = false;
+    } else {
+      delete updateData.email;
     }
 
     const user = await AuthModel.update(req.usuario.id, updateData);
+
+    if (cambiaEmail) {
+      const otpCode = generateOtp();
+      await AuthModel.setOtp(user.id, otpCode, new Date(Date.now() + OTP_TTL_MS).toISOString());
+      try {
+        await sendOtpEmail(user.email, otpCode);
+      } catch (emailErr) {
+        console.error('Error enviando OTP:', emailErr.message);
+      }
+      return res.json({
+        success: true,
+        message: 'Perfil actualizado. Verifica tu nuevo correo con el código que te enviamos.',
+        emailVerificationRequired: true,
+        data: user,
+      });
+    }
+
     res.json({ success: true, message: 'Perfil actualizado', data: user });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al actualizar perfil', error: error.message });
+    serverError(res, 'Error al actualizar perfil', error);
   }
 });
 
@@ -51,10 +84,6 @@ router.put('/avatar', authMiddleware, (req, res, next) => {
         return res.status(400).json({ success: false, message: 'No se proporcionó imagen' });
       }
 
-      if (req.file.size > 10 * 1024 * 1024) {
-        return res.status(400).json({ success: false, message: 'La imagen no puede superar los 10MB' });
-      }
-
       const result = await uploadToCloudinary(req.file.buffer, {
         folder: 'yum_yum/avatars',
         transformation: { width: 400, height: 400, crop: 'fill', gravity: 'face' },
@@ -63,7 +92,7 @@ router.put('/avatar', authMiddleware, (req, res, next) => {
       const user = await AuthModel.update(req.usuario.id, { avatar_url: result.secure_url });
       res.json({ success: true, message: 'Avatar actualizado', data: { avatar_url: user.avatar_url } });
     } catch (error) {
-      res.status(500).json({ success: false, message: 'Error al subir avatar', error: error.message });
+      serverError(res, 'Error al subir avatar', error);
     }
   });
 });
@@ -83,27 +112,39 @@ router.put('/password', authMiddleware, validate(changePasswordSchema), async (r
     const hashedPassword = await bcrypt.hash(req.body.nuevaContraseña, 10);
     await AuthModel.updatePassword(req.usuario.id, hashedPassword);
 
-    res.json({ success: true, message: 'Contraseña actualizada exitosamente' });
+    // Cambiar la contraseña cierra las demás sesiones. Se reemiten tokens para
+    // no expulsar al dispositivo desde el que se hizo el cambio.
+    await AuthModel.incrementTokenVersion(req.usuario.id);
+    const actualizado = await AuthModel.findById(req.usuario.id);
+    const tokens = generateTokens(actualizado);
+
+    res.json({ success: true, message: 'Contraseña actualizada exitosamente', ...tokens });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al cambiar contraseña', error: error.message });
+    serverError(res, 'Error al cambiar contraseña', error);
   }
 });
 
 router.post('/close-sessions', authMiddleware, async (req, res) => {
   try {
     await AuthModel.incrementTokenVersion(req.usuario.id);
-    res.json({ success: true, message: 'Sesiones cerradas en otros dispositivos' });
+    // El incremento invalida también el token de este dispositivo, así que se
+    // reemite: "cerrar en otros dispositivos" no debe cerrar el actual.
+    const actualizado = await AuthModel.findById(req.usuario.id);
+    const tokens = generateTokens(actualizado);
+    res.json({ success: true, message: 'Sesiones cerradas en otros dispositivos', ...tokens });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al cerrar sesiones', error: error.message });
+    serverError(res, 'Error al cerrar sesiones', error);
   }
 });
 
 router.post('/deactivate', authMiddleware, async (req, res) => {
   try {
     await AuthModel.deactivate(req.usuario.id);
+    // Invalida también los tokens de refresco ya emitidos.
+    await AuthModel.incrementTokenVersion(req.usuario.id);
     res.json({ success: true, message: 'Cuenta desactivada exitosamente' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al desactivar cuenta', error: error.message });
+    serverError(res, 'Error al desactivar cuenta', error);
   }
 });
 
@@ -123,7 +164,7 @@ router.delete('/account', authMiddleware, async (req, res) => {
     await AuthModel.hardDelete(req.usuario.id);
     res.json({ success: true, message: 'Cuenta eliminada definitivamente' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar cuenta', error: error.message });
+    serverError(res, 'Error al eliminar cuenta', error);
   }
 });
 

@@ -16,6 +16,29 @@ const pasoSchema = Joi.object({
   orden: Joi.number().integer().min(1).required(),
 });
 
+// Las recetas viajan como multipart/form-data, asi que `ingredientes` y
+// `pasos` llegan como strings JSON, no como arrays: Joi.array() los
+// rechazaba y ninguna receta podia crearse. Este helper acepta las dos
+// formas, parsea el string cuando hace falta y valida el contenido,
+// devolviendo el array ya convertido (cantidades como numeros).
+const jsonArrayOf = (itemSchema, min = 1) =>
+  Joi.any().custom((value, helpers) => {
+    const label = helpers.state.path.join('.');
+    let arr = value;
+
+    if (typeof arr === 'string') {
+      try {
+        arr = JSON.parse(arr);
+      } catch {
+        return helpers.message(`"${label}" no es JSON valido`);
+      }
+    }
+
+    const { error, value: validated } = Joi.array().items(itemSchema).min(min).validate(arr);
+    if (error) return helpers.message(`"${label}" ${error.details[0].message}`);
+    return validated;
+  });
+
 const createRecipeSchema = Joi.object({
   titulo: Joi.string().min(3).max(200).required().messages({
     'string.min': 'El título debe tener al menos 3 caracteres',
@@ -25,8 +48,8 @@ const createRecipeSchema = Joi.object({
   tiempo_preparacion: Joi.number().integer().min(1).required(),
   dificultad: Joi.string().valid('facil', 'media', 'dificil').required(),
   categoria_id: Joi.number().integer().positive().required(),
-  ingredientes: Joi.array().items(ingredientSchema).min(1).required(),
-  pasos: Joi.array().items(pasoSchema).min(1).required(),
+  ingredientes: jsonArrayOf(ingredientSchema).required(),
+  pasos: jsonArrayOf(pasoSchema).required(),
   video_url: Joi.string().uri().allow('', null),
   video_tipo: Joi.string().valid('cloudinary', 'youtube').allow('', null),
 });
@@ -37,8 +60,8 @@ const updateRecipeSchema = Joi.object({
   tiempo_preparacion: Joi.number().integer().min(1),
   dificultad: Joi.string().valid('facil', 'media', 'dificil'),
   categoria_id: Joi.number().integer().positive(),
-  ingredientes: Joi.array().items(ingredientSchema).min(1),
-  pasos: Joi.array().items(pasoSchema).min(1),
+  ingredientes: jsonArrayOf(ingredientSchema),
+  pasos: jsonArrayOf(pasoSchema),
   video_url: Joi.string().uri().allow('', null),
   video_tipo: Joi.string().valid('cloudinary', 'youtube').allow('', null),
 });

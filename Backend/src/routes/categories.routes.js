@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { getClient } = require('../config/db');
+const { serverError } = require('../utils/helpers');
 
 router.get('/', async (req, res) => {
   try {
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     if (error) throw error;
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener categorías', error: error.message });
+    serverError(res, 'Error al obtener categorías', error);
   }
 });
 
@@ -30,7 +31,7 @@ router.get('/:id', async (req, res) => {
     if (error) throw error;
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener categoría', error: error.message });
+    serverError(res, 'Error al obtener categoría', error);
   }
 });
 

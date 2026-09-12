@@ -3,7 +3,7 @@ const router = express.Router();
 const isAdmin = require('../../middlewares/isAdmin');
 const { getClient } = require('../../config/db');
 const AuthModel = require('../../models/auth.model');
-const { registerAudit } = require('../../utils/helpers');
+const { registerAudit, serverError } = require('../../utils/helpers');
 
 router.get('/', isAdmin, async (req, res) => {
   try {
@@ -30,7 +30,7 @@ router.get('/', isAdmin, async (req, res) => {
 
     res.json({ success: true, data, total: count || 0, page: parseInt(page), limit: parseInt(limit) });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener usuarios', error: error.message });
+    serverError(res, 'Error al obtener usuarios', error);
   }
 });
 
@@ -48,7 +48,7 @@ router.get('/:id', isAdmin, async (req, res) => {
     if (error) throw error;
     res.json({ success: true, data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al obtener usuario', error: error.message });
+    serverError(res, 'Error al obtener usuario', error);
   }
 });
 
@@ -79,7 +79,7 @@ router.put('/:id/rol', isAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Rol actualizado', data });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al actualizar rol', error: error.message });
+    serverError(res, 'Error al actualizar rol', error);
   }
 });
 
@@ -104,7 +104,7 @@ router.delete('/:id', isAdmin, async (req, res) => {
 
     res.json({ success: true, message: 'Usuario eliminado' });
   } catch (error) {
-    res.status(500).json({ success: false, message: 'Error al eliminar usuario', error: error.message });
+    serverError(res, 'Error al eliminar usuario', error);
   }
 });
 

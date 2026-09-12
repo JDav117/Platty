@@ -61,7 +61,9 @@ export default function RecipeForm({ initialData }) {
       fd.append('categoria_id', form.categoria_id);
       fd.append('ingredientes', JSON.stringify(form.ingredientes));
       fd.append('pasos', JSON.stringify(form.pasos));
-      if (form.video_url) { fd.append('video_url', form.video_url); fd.append('video_tipo', form.video_tipo||'youtube'); }
+      // Se envían siempre, vacíos incluidos: así se puede quitar un video ya guardado.
+      fd.append('video_url', form.video_url || '');
+      fd.append('video_tipo', form.video_url ? (form.video_tipo || 'youtube') : '');
       imagenes.forEach((img) => fd.append('imagenes', img));
       if (isEditing) { await recipesAPI.update(id, fd); toast.success('Receta actualizada'); } else { const { data } = await recipesAPI.create(fd); toast.success('Receta creada'); navigate(`/recipes/${data.data.slug}`); }
     } catch (err) { toast.error(err.response?.data?.message||'Error'); } finally { setLoading(false); }

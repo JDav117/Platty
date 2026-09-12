@@ -4,25 +4,31 @@ const { Readable } = require('stream');
 
 const storage = multer.memoryStorage();
 
-const fileFilter = (req, file, cb) => {
-  const allowedImageTypes = ['image/jpeg', 'image/png', 'image/webp'];
-  const allowedVideoTypes = ['video/mp4', 'video/webm', 'video/quicktime'];
+const TIPOS_IMAGEN = ['image/jpeg', 'image/png', 'image/webp'];
+const TIPOS_VIDEO = ['video/mp4', 'video/webm', 'video/quicktime'];
 
-  if (allowedImageTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else if (allowedVideoTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Formato de archivo no permitido. Solo imágenes (JPEG, PNG, WebP) y videos (MP4, WebM)'), false);
-  }
+const LIMITE_IMAGEN = 10 * 1024 * 1024;
+const LIMITE_VIDEO = 100 * 1024 * 1024;
+
+// Antes había un único multer para todo: aceptaba videos en los endpoints de
+// imágenes y aplicaba el tope de 100MB en todos, así que un archivo de 90MB se
+// cargaba entero en memoria y recién después se rechazaba por superar los 10MB.
+// Ahora cada tipo tiene su filtro y su límite, y multer corta durante la subida.
+const filtroPor = (permitidos, etiqueta) => (req, file, cb) => {
+  if (permitidos.includes(file.mimetype)) return cb(null, true);
+  cb(new Error('Formato de archivo no permitido. Solo ' + etiqueta), false);
 };
 
-const upload = multer({
+const uploaderImagen = multer({
   storage,
-  fileFilter,
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB máximo general
-  },
+  fileFilter: filtroPor(TIPOS_IMAGEN, 'imágenes (JPEG, PNG, WebP)'),
+  limits: { fileSize: LIMITE_IMAGEN },
+});
+
+const uploaderVideo = multer({
+  storage,
+  fileFilter: filtroPor(TIPOS_VIDEO, 'videos (MP4, WebM, MOV)'),
+  limits: { fileSize: LIMITE_VIDEO },
 });
 
 const uploadToCloudinary = (buffer, options = {}) => {
@@ -46,14 +52,14 @@ const uploadToCloudinary = (buffer, options = {}) => {
   });
 };
 
-const uploadImages = upload.array('imagenes', 5);
-const uploadSingleImage = upload.single('imagen');
-const uploadVideo = upload.single('video');
+const uploadImages = uploaderImagen.array('imagenes', 5);
+const uploadSingleImage = uploaderImagen.single('imagen');
+const uploadVideo = uploaderVideo.single('video');
 
 const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
     if (err.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ success: false, message: 'Archivo demasiado grande. Máximo 100MB' });
+      return res.status(400).json({ success: false, message: 'Archivo demasiado grande. Máximo 10MB por imagen' });
     }
     if (err.code === 'LIMIT_UNEXPECTED_FILE') {
       return res.status(400).json({ success: false, message: 'Demasiados archivos. Máximo 5 imágenes' });
@@ -66,4 +72,4 @@ const handleUploadError = (err, req, res, next) => {
   next();
 };
 
-module.exports = { upload, uploadToCloudinary, uploadImages, uploadSingleImage, uploadVideo, handleUploadError };
+module.exports = { uploadToCloudinary, uploadImages, uploadSingleImage, uploadVideo, handleUploadError };
